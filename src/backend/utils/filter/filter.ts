@@ -1,19 +1,8 @@
 import * as flat from 'flat'
-import BaseProperty from '../../adapters/property/base-property'
 import BaseResource from '../../adapters/resource/base-resource'
-import BaseRecord from '../../adapters/record/base-record'
+import { FilterElement, FilterElementMap, PropertiesFilter } from './filter.types';
 
 export const PARAM_SEPARATOR = '~~'
-
-export type FilterElement = {
-  path: string;
-  property: BaseProperty;
-  value: string | {
-    from: string;
-    to: string;
-  };
-  populated?: BaseRecord | null;
-}
 
 interface ReduceCallback<T> {
   (memo: T, element: FilterElement): T;
@@ -24,9 +13,9 @@ interface ReduceCallback<T> {
  * @private
  */
 export class Filter {
-  public filters: {[key: string]: FilterElement}
+  public filters: FilterElementMap;
 
-  private resource: BaseResource
+  private resource: BaseResource;
 
   /**
    * Changes raw nested filters to form Object<path, value>.
@@ -56,18 +45,19 @@ export class Filter {
    * @param   {Object<String,Object | String>}  filters   selected filters
    * @param   {BaseResource}                    resource    resource which is filtered
    */
-  constructor(filters = {}, resource) {
+  constructor(resource: BaseResource, filters: PropertiesFilter = {}) {
     this.resource = resource
-    const normalized = Filter.normalizeKeys(filters)
-    this.filters = Object.keys(normalized).reduce((memo, path) => {
-      memo[path] = {
-        path,
-        property: this.resource.property(path),
-        value: normalized[path],
-      }
+    this.filters = this.convertPropertiesFilterToFilterElementMap(filters)
+    // const normalized = Filter.normalizeKeys(filters)
+    // Object.keys(normalized).reduce((memo, path) => {
+    //   memo[path] = {
+    //     path,
+    //     property: this.resource.property(path),
+    //     value: normalized[path],
+    //   }
 
-      return memo
-    }, {})
+    //   return memo
+    // }, {})
   }
 
   /**
@@ -80,6 +70,18 @@ export class Filter {
     return this.filters[key]
   }
 
+  convertPropertiesFilterToFilterElementMap(filters: PropertiesFilter): FilterElementMap {
+    return Object.keys(filters).reduce((memo, path) => {
+      memo[path] = {
+        path,
+        property: this.resource.property(path),
+        condition: typeof filters[path] === 'object' ? filters[path] : { $eq: filters[path] },
+      }
+
+      return memo
+    }, {})
+  }
+
   /**
    * Populates all filtered properties which refers to other resources
    */
@@ -90,7 +92,7 @@ export class Filter {
       const referenceResource = this.resource.decorate().getPropertyByKey(key)?.reference()
       if (referenceResource) {
         this.filters[key].populated = await referenceResource.findOne(
-          this.filters[key].value as string,
+          Object.values(this.filters[key].condition)[0] as string,
         )
       }
     }
